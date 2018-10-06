@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title></title>
+  <style>
+    * {
+	   padding: 0;
+	   margin: 0;
+     background-color: black;
+    }
+
+    canvas {
+	    display: block;
+	    margin: 0px auto;
+      margin-top: 50px;
+    }
+
+    #myCanvas:-webkit-full-screen {
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="myCanvas" width="640" height="480"></canvas>
+
+<script>
+
+  "use strict"; // enable strict mode
+
+  // Add reference to the canvas
+  var canvas = document.getElementById("myCanvas");
+  var ctx = canvas.getContext("2d");
+
+  //-- Color variables --//
+  // Color 1 - background
+  var COLOR1 = "#2B3A42";
+  // Color 2 - player's ship
+  var COLOR2 = "#738D9C";
+  // Color 3 - enemy ships
+  var COLOR3 = "#67696E";
+  // Color 4 - stars
+  var COLOR4 = "#F4EEE2";
+  // Color 5 - bullets
+  var COLOR5 = "khaki"; // #EED069
+
+  // Key Codes
+  var RIGHT = 39;
+  var LEFT = 37;
+  var UP = 38;
+  var DOWN = 40;
+  var SPACE = 32;
+  var ENTER = 13;
+  var P = 80;
+
+  // Enemy attack patterns
+  var BASIC = "test";
+
+  // Star scroll speed
+  var STARSPEED = 2;
+
+  // Import Audio into game
+  var laser_sound = new Audio('laser_sound.mp3');
+
+  // Load images
+  var ship_img = new Image(32, 32);
+  ship_img.src = "ship.png";
+
+  // The number of stars that will be on screen at one time.
+  var numOfStars = 100;
+
+  // Stars array will hold arrays with each star's x and y.
+  var stars = [];
+
+  // Create the player object with all of the player info
+  var player = new Ship((canvas.width / 2) - 16, canvas.height - 50, 32, 32, 2, COLOR2, "up");
+
+  // An array that holds all the ships on the screen.
+  var ships = [player];
+
+  // Create the object for level 1
+  var level1 = new Level(1);
+
+  // Create the enemies for level 1
+  var enemy1 = new Enemy(randX(), -50, 32, 32, COLOR3);
+
+  // Add enemies for level 1
+  level1.enemies.push(enemy1);
+
+  // this array will hold all the enemies on screen right now.
+  var currentEnemies = [];
+  var enemyBullets = [];
+
+  var currentLevel; 
+
+  // I am going to use this draw count variable to limit the amount of shots
+  // that can be fired. Only once every so many frames, will a shot be fired.
+  var drawCount = 1;
+
+  // This boolean will hold true while on the load screen until player presses enter.
+  var loadScreen = true;
+
+  // This boolean will hold true only if the game is paused
+  var paused = false;
+
+  // boolean values saying whether the keys have been pushed down
+  var rightPressed = false;
+  var leftPressed = false;
+  var upPressed = false;
+  var downPressed = false;
+  var spacePressed = false;
+
+  // Add keydown and keyup listeners and mouse listener
+  document.addEventListener("keydown", keyDownHandler, false);
+  document.addEventListener("keyup", keyUpHandler, false);
+
+  //------OBJECTS-------//
+
+  // The ship object function can be used to make the player ship and enemy ships.
+  function Ship(x, y, width, height, health, color) {
+    this.x = x;
+    this.y = y;
+    this.width = width;
+    this.height = height;
+    this.state = "normal";
+    this.currentHealth = health;
+    this.color = color;
+    this.shooting = false;
+    this.speed = 4;
+    this.shootDelay = 10;
+    // Bullets array holds all the bullets fired by this ship.
+    this.bullets = [];
+    
+    // Store original values, so resetting these objects can be easy.
+    var startX = x;
+    var startY = y;
+    var startWidth = width;
+    var startHeight = height;
+    var startHealth = health;
+    var startColor = color;
+    
+    // The start function can be called to set / reset attributes to
+    // their original values.
+    this.start = function() {
+      this.x = startX;
+      this.y = startY;
+      this.width = startWidth;
+      this.height = startHeight;
+      this.state = "normal";
+      this.currentHealth = startHealth;
+      this.color = startColor;
+      this.shooting = false;
+      this.speed = 4;
+      this.shootDelay = 16;
+      this.bullets = [];
+    };
+
+    // The shoot function will fire bullets from the ship
+    this.shoot = function() {
+      var bullet1X = player.x + 4;
+      var bullet1Y = player.y;
+      var bullet2X = player.x + player.width - 4;
+      var bullet2Y = player.y;
+
+      // create two new bullets
+      var bullet1 = new Bullet(bullet1X, bullet1Y);
+      var bullet2 = new Bullet(bullet2X, bullet2Y);
+
+      // Add these bullets to the player's bullets array
+      this.bullets.push(bullet1);
+      this.bullets.push(bullet2);
+
+      // Play laser sound
+      laser_sound.play();
+    };
+  }
+
+  function Enemy(x, y, width, height, health, color) {
+    Ship.call(this, x, y, width, height, health, color);
+    var counter = 0;
+    // This array hold the enemy attack patterns.
+    // this.attacks = attacks;
+
+    // This overrides the shoot function for the ship object
+    this.shoot = function() {
+      var bulletX = this.x + this.width/2;
+      var bulletY = this.y + this.height + 4;
+
+      // create a new bullet
+      var bullet = new Bullet(bulletX, bulletY);
+
+      // add new bullet to enemy bullet array
+      enemyBullets.push(bullet);
+    }
+
+    // Update enemy movement and actions
+    this.ai = function() {
+      // Move enemy 
+      if (this.y < 100) {
+        this.y += this.speed;
+      }
+
+      // Shoot at player
+      if (counter % 100 === 0) {
+        this.shoot();
+      }
+      counter++;
+    }
+  }
+
+  function Level(levelNumber) {
+    this.num = levelNumber;
+    this.enemies = [];
+    this.enemyIndex = 0;
+    this.startTime;
+
+    this.start = function() {
+      // Reset level variables
+      this.enemyIndex = 0;
+      this.startTime = new Date();
+      // Display the level start text on the screen
+      var levelNum = "Level " + this.num;
+      ctx.font = "40px Arial";
+      ctx.fillStyle = "white";
+      ctx.textAlign = "center";
+      ctx.fillText(levelNum, canvas.width/2, canvas.height/2);
+      ctx.fillText("Press Enter to continue", canvas.width/2, canvas.height-100);
+    };
+
+    this.spawnEnemies = function() {
+      var currTime = new Date();
+      // Check if enough time has passed for another enemy to spawn.
+      if (currTime - this.startTime > 5000) {
+        // Check if there is a next enemy in the array
+        if (this.enemies.length >= this.enemyIndex + 1) {
+          currentEnemies.push(this.enemies[this.enemyIndex]);
+          this.enemyIndex++;
+        }
+      }
+    }; 
+  }
+
+  function Bullet(x, y) {
+    this.x = x;
+    this.y = y;
+    this.width = 1;
+    this.height = 3;
+    this.speed = 8;
+
+    var startingX = this.x;
+    var startingY = this.y;
+
+    //*********** THE BELOW IS ONLY FOR ENEMY BULLETS ************//
+
+    // Distance from the bullet to the player
+    var distX = (player.x + (player.width/2)) - startingX;
+    var distY = (player.y + (player.height/2)) - startingY;
+    var totalDist = Math.abs(distX) + Math.abs(distY);
+    
+    // Find the mulplier, so I can use it to calculate
+    // A linear movement from bullet to player.
+    var multiplier = this.speed / totalDist;
+    this.xSpeed = distX * multiplier;
+    this.ySpeed = distY * multiplier;
+  }
+  //---- END OF OBJECTS -----//
+
+  function keyDownHandler(e) {
+    if (e.keyCode === RIGHT) {
+      rightPressed = true;
+    }
+    else if (e.keyCode === LEFT) {
+      leftPressed = true;
+    }
+    else if (e.keyCode === UP) {
+      upPressed = true;
+    }
+    else if (e.keyCode === DOWN) {
+      downPressed = true;
+    }
+    else if (e.keyCode === SPACE) {
+      spacePressed = true;
+    }else if (e.keyCode === ENTER && loadScreen) {
+      loadScreen = false;
+      draw();
+    }
+  }
+
+  function keyUpHandler(e) {
+    if (e.keyCode === RIGHT) {
+      rightPressed = false;
+    }
+    else if (e.keyCode === LEFT) {
+      leftPressed = false;
+    }
+    else if (e.keyCode === UP) {
+      upPressed = false;
+    }
+    else if (e.keyCode === DOWN) {
+      downPressed = false;
+    }
+    else if (e.keyCode === SPACE) {
+      spacePressed = false;
+    }
+    else if (e.keyCode === P) {
+      togglePause();
+    }
+  }
+
+  function startGame() {
+    // Initialize player starting variables
+    player.start();
+    // Generate initial stars
+    generateStars();
+    // Set current level
+    currentLevel = level1;
+    // Load level 1 (Which shows the level splash screen)
+    level1.start();
+    // Run initial draw
+  }
+
+  // this function will go through all the ships and bullets to
+  // check for collisions.
+  function checkForCollisions() 
+  {
+    // loop through each enemy bullet and check if it
+    // is colliding with the player
+    for (var i = 0; i < enemyBullets.length; i++) 
+    {
+      if (collisionDetection(player, enemyBullets[i])) 
+      {
+        // Player has been hit, player dies
+        // console.log("player is hit");
+      }
+    }
+
+    // Loop through player bullets and determine if
+    // any are colliding with any enemies.
+    for (var j = 0; j < player.bullets.length; j++) 
+    {
+      var currentBullet = player.bullets[j];
+      for (var k = 0; k < currentEnemies.length; k++) 
+      {
+        var currentEnemy = currentEnemies[k];
+        if (collisionDetection(currentBullet, currentEnemy)) 
+        {
+          // console.log("enemy is hit");
+        }
+      }
+    }
+  }
+
+  // Collision detection take two arguments
+  // and checks if object1 is coliding with object2
+  // this function assumes the object is a rectangle.
+  // this function returns true if a collision is found.
+  function collisionDetection(object1, object2) 
+  {
+    var collision = false;
+    // find the (x, y) of the center of object1 and 2
+    // and the halfwidths and halfheights of each object
+    var obj1 =  
+    {
+      centerX: object1.x + (object1.width / 2),
+      centerY: object1.y + (object1.height / 2),
+      halfWidth: object1.width / 2,
+      halfHeight: object1.height / 2
+    }
+    var obj2 =  
+    {
+      centerX: object2.x + (object2.width / 2),
+      centerY: object2.y + (object2.height / 2),
+      halfWidth: object2.width / 2,
+      halfHeight: object2.height / 2
+    }
+
+    // find the x and y velocity between the 2 objects
+    var vx = obj1.centerX - obj2.centerX;
+    var vy = obj1.centerY - obj2.centerY;
+    // find the total of both object's halfwidths and halfheights
+    var totalHalfWidths = obj1.halfWidth + obj2.halfWidth;
+    var totalHalfHeights = obj1.halfHeight + obj2.halfHeight;
+
+    // Check for a collision on the x axis
+    if (Math.abs(vx) < totalHalfWidths) 
+    {
+      // A collision might be happening, check the y axis now
+      if (Math.abs(vy) < totalHalfHeights) 
+      {
+        // There is definately a collision happening.
+        collision = true;
+      }
+      else 
+      {
+        // There's no collision on the y axis.
+        collision = false;
+      }
+    }
+    else 
+    {
+      // There's no collision on the x axis.
+      collision = false;
+    }
+    
+    return collision;
+  }
+
+  function togglePause() {
+    paused = !paused
+    if(!paused) {
+      draw();
+    }
+  }
+
+  // Finds a random X for enemy spawn locations
+  function randX() {
+    return Math.floor((Math.random() * (canvas.width - 48)) + 8);
+  }
+
+  // This functin will generate the initial stars.
+  function generateStars() {
+    // Loop through the number of stars there will be
+    for (var i = 0; i < numOfStars; i++) {
+      var randX = Math.floor(Math.random() * canvas.width);
+      var randY = Math.floor(Math.random() * canvas.height);
+      var newStar = [randX, randY];
+      stars.push(newStar);
+    }
+  }
+
+  // This function will constantly update the stars' scrolling,
+  // and remove stars that go off bottom of screen
+  // and add new stars to the top of the screen
+  function drawStars() {
+    // Loop through each star and draw it.
+    for (var i = 0; i < numOfStars; i++) {
+      var starX = stars[i][0];
+      var starY = stars[i][1];
+      ctx.beginPath();
+      ctx.rect(starX, starY, 1, 1);
+      ctx.fillStyle = COLOR4;
+      ctx.fill();
+      ctx.closePath();
+
+      // Move stars for scrolling effect
+      stars[i][1] += STARSPEED;
+
+      // If star goes off bottom of screen,
+      // generate a new random star at top.
+      if (stars[i][1] > canvas.height) {
+        var randX = Math.floor(Math.random() * canvas.width);
+        stars[i][0] = randX;
+        stars[i][1] = 0;
+      }
+    }
+  }
+
+  // Draw and move bullets
+  function drawBullets() 
+  {
+    // Player Bullets
+    for (var j = 0; j < ships.length; j++) 
+    {
+      // Loop through and draw each bullet
+      for (var i = 0; i < ships[j].bullets.length; i++) 
+      {
+        var bullet = ships[j].bullets[i];
+
+        ctx.beginPath();
+        ctx.rect(bullet.x, bullet.y, bullet.width, bullet.height);
+        ctx.fillStyle = COLOR5;
+        ctx.fill();
+        ctx.closePath();
+
+        // Move each bullet
+        ships[j].bullets[i].y -= bullet.speed;
+
+        // Check if bullet is off left or right side of screen
+        if (bullet.x > canvas.width || bullet.x < 0) 
+        {
+          // Remove bullet from array
+          ships[j].bullets.splice(i, 1);
+        }
+        // Check if bullet is off the top or bottom of screen
+        else if (bullet.y > canvas.height || bullet.y < 0)
+        {
+          // Remove bullet from array
+          ships[j].bullets.splice(i, 1);
+        }
+      }
+    }
+
+    // Enemy Bullets
+    for (var k = 0; k < enemyBullets.length; k++) 
+    {
+      var currBullet = enemyBullets[k];
+
+      ctx.beginPath();
+      ctx.rect(currBullet.x, currBullet.y, 5, 5);
+      ctx.fillStyle = "yellow";
+      ctx.fill();
+      ctx.closePath();
+
+      // Move bullet's x and y
+      enemyBullets[k].x += currBullet.xSpeed;
+      enemyBullets[k].y += currBullet.ySpeed;
+    
+      // Check if bullet is off left or right side of screen
+      if (currBullet.x > canvas.width || currBullet.x < 0) 
+      {
+        // Remove bullet from array
+        enemyBullets.splice(k, 1);
+      }
+      // Check if bullet is off the top or bottom of screen
+      else if (currBullet.y > canvas.height || currBullet.y < 0)
+      {
+        // Remove bullet from array
+        enemyBullets.splice(k, 1);
+      }
+    }
+  }
+
+  // Draw the black background
+  function drawBackground() {
+    ctx.beginPath();
+    ctx.rect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = COLOR1;
+    ctx.fill();
+    ctx.closePath();
+  }
+
+  // Draw the player
+  function drawPlayer() {
+    // Draw the ship image
+    ctx.drawImage(ship_img, player.x, player.y, player.width, player.height);
+    
+  }
+  
+  // Draw each enemy and updates their actions by calling enemy.ai function.
+  function drawEnemies() {
+    // Loop through the currentEnemies array
+    for (var i = 0; i < currentEnemies.length; i++) {
+      var currentEnemy = currentEnemies[i];
+      ctx.beginPath();
+      ctx.rect(currentEnemy.x, currentEnemy.y, currentEnemy.width, currentEnemy.height);
+      ctx.fillStyle = COLOR3;
+      ctx.fill();
+      ctx.closePath();
+
+      // Call the enemy.ai function to update enemy actions.
+      currentEnemy.ai();
+    }
+  }
+
+  function draw() {
+    // Check if game is paused, if so stop draw loop
+    if (paused) {
+      return;
+    }
+
+    // Clear canvas from previous frame
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw the background
+    drawBackground();
+
+    // Draw the stars
+    drawStars();  
+
+    // First, check which keys are pressed
+    // and perform proper action
+    if (upPressed && !downPressed) {
+      player.y -= player.speed;
+    }
+    if (downPressed && !upPressed) {
+      player.y += player.speed;
+    }
+    if (rightPressed && !leftPressed) {
+      player.x += player.speed;
+    }
+    if (leftPressed && !rightPressed) {
+      player.x -= player.speed;
+    }
+    if (spacePressed && drawCount % player.shootDelay === 1) {
+      player.shoot();
+    }
+
+    // Make sure ship is not going off edge of canvas
+    // Top Side
+    if (player.y < 0) {
+      player.y = 0;
+    }
+    // Bottom Side
+    if (player.y + player.height > canvas.height) {
+      player.y = canvas.height - player.height;
+    }
+    // Left Side
+    if (player.x < 0) {
+      player.x = 0;
+    }
+    // Right Side
+    if (player.x + player.width > canvas.width) {
+      player.x = canvas.width - player.width;
+    }
+
+    // Check for collisions
+    checkForCollisions();
+
+    // Draw Player
+    drawPlayer();
+
+    // Draw enemies and update their actions.
+    drawEnemies();
+    // Check if new enemies need to be spawned
+    currentLevel.spawnEnemies();
+
+    // Draw player' bullets
+    drawBullets();
+
+    // Increment draw count
+    drawCount++;
+
+    // Will keep recalling draw to animate the game objects.
+    requestAnimationFrame(draw);
+  }
+
+  startGame();
+
+</script>
+</body>
+</html>

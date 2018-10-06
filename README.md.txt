@@ -1,0 +1,1 @@
+This is a shoot 'em up game I am working on. I am doing this project to test out my ability to make a Javascript game that runs on the Canvas. I am also testing out my ability to handle creating and removing many objects while being able to handle collision detection.
